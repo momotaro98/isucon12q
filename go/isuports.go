@@ -1395,6 +1395,8 @@ func playerHandler(c echo.Context) error {
 		return fmt.Errorf("error Select competition: %w", err)
 	}
 
+	compIDMap := make(map[string]*CompetitionRow) // my add
+
 	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
 	fl, err := flockByTenantID(v.tenantID)
 	if err != nil {
@@ -1403,6 +1405,9 @@ func playerHandler(c echo.Context) error {
 	defer fl.Close()
 	pss := make([]PlayerScoreRow, 0, len(cs))
 	for _, c := range cs {
+
+		compIDMap[c.ID] = &c // my add
+
 		ps := PlayerScoreRow{}
 		if err := tenantDB.GetContext(
 			ctx,
@@ -1424,10 +1429,14 @@ func playerHandler(c echo.Context) error {
 
 	psds := make([]PlayerScoreDetail, 0, len(pss))
 	for _, ps := range pss {
-		comp, err := retrieveCompetition(ctx, tenantDB, ps.CompetitionID)
-		if err != nil {
-			return fmt.Errorf("error retrieveCompetition: %w", err)
+		comp, ok := compIDMap[ps.CompetitionID]
+		if !ok {
+			return fmt.Errorf("error my retrieveCompetition")
 		}
+		// comp, err := retrieveCompetition(ctx, tenantDB, ps.CompetitionID)
+		// if err != nil {
+		// 	return fmt.Errorf("error retrieveCompetition: %w", err)
+		// }
 		psds = append(psds, PlayerScoreDetail{
 			CompetitionTitle: comp.Title,
 			Score:            ps.Score,
