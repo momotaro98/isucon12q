@@ -30,5 +30,5 @@ echo 'Restarted!'
 
 echo 'Rotating files'
 sudo bash -c 'cp /var/log/nginx/access.log /var/log/nginx/access.log.$(date +%s) && echo > /var/log/nginx/access.log'
-sudo bash -c 'cp /var/log/mysql/slow.sql /var/log/mysql/slow.sql.$(date +%s).$(git rev-parse HEAD) && echo > /var/log/mysql/slow.sql'
+sudo bash -c 'cp /var/log/mysql/slow.log /var/log/mysql/slow.log.$(date +%s).$(git rev-parse HEAD) && echo > /var/log/mysql/slow.log'
 echo 'Rotated!'
