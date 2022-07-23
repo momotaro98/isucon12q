@@ -1330,9 +1330,29 @@ func billingHandler(c echo.Context) error {
 	); err != nil {
 		return fmt.Errorf("error Select competition: %w", err)
 	}
+
+	vhcs := []*VisitHistoryCompIDSummaryRow{}
+	if err := adminDB.SelectContext(
+		ctx,
+		&vhcs,
+		"SELECT competition_id, player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? GROUP BY competition_id, player_id",
+		v.tenantID,
+	); err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("error Select visit_history comp: tenantID=%d, %w", v.tenantID, err)
+	}
+
+	competitionIDMap := make(map[string][]*VisitHistorySummaryRow)
+	for _, r := range vhcs {
+		competitionIDMap[r.CompetitionID] = append(competitionIDMap[r.CompetitionID], &VisitHistorySummaryRow{
+			PlayerID:     r.PlayerID,
+			MinCreatedAt: r.MinCreatedAt,
+		})
+	}
+
 	tbrs := make([]BillingReport, 0, len(cs))
 	for _, comp := range cs {
-		report, err := billingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID)
+		// report, err := billingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID)
+		report, err := myBillingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID, competitionIDMap)
 		if err != nil {
 			return fmt.Errorf("error billingReportByCompetition: %w", err)
 		}
