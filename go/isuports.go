@@ -912,33 +912,67 @@ func playersAddHandler(c echo.Context) error {
 	displayNames := params["display_name[]"]
 
 	pds := make([]PlayerDetail, 0, len(displayNames))
+
+	var rows []PlayerRow
+
+	now := time.Now().Unix()
 	for _, displayName := range displayNames {
 		id, err := dispenseID(ctx)
 		if err != nil {
 			return fmt.Errorf("error dispenseID: %w", err)
 		}
-
-		now := time.Now().Unix()
-		if _, err := tenantDB.ExecContext(
-			ctx,
-			"INSERT INTO player (id, tenant_id, display_name, is_disqualified, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-			id, v.tenantID, displayName, false, now, now,
-		); err != nil {
-			return fmt.Errorf(
-				"error Insert player at tenantDB: id=%s, displayName=%s, isDisqualified=%t, createdAt=%d, updatedAt=%d, %w",
-				id, displayName, false, now, now, err,
-			)
-		}
-		p, err := retrievePlayer(ctx, tenantDB, id)
-		if err != nil {
-			return fmt.Errorf("error retrievePlayer: %w", err)
-		}
+		rows = append(rows, PlayerRow{
+			TenantID:       v.tenantID,
+			ID:             id,
+			DisplayName:    displayName,
+			IsDisqualified: false,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		})
 		pds = append(pds, PlayerDetail{
-			ID:             p.ID,
-			DisplayName:    p.DisplayName,
-			IsDisqualified: p.IsDisqualified,
+			ID:             id,
+			DisplayName:    displayName,
+			IsDisqualified: false,
 		})
 	}
+
+	_, err = tenantDB.NamedExecContext(
+		ctx,
+		`INSERT INTO player
+		(id, tenant_id, display_name, is_disqualified, created_at, updated_at) 
+		VALUES (:id, :tenant_id, :display_name, :is_disqualified, :created_at, :updated_at)`,
+		rows)
+	if err != nil {
+		return fmt.Errorf("bulk insert in /api/organizer/players/add")
+	}
+
+	// for _, displayName := range displayNames {
+	// 	id, err := dispenseID(ctx)
+	// 	if err != nil {
+	// 		return fmt.Errorf("error dispenseID: %w", err)
+	// 	}
+
+	// 	now := time.Now().Unix()
+	// 	if _, err := tenantDB.ExecContext(
+	// 		ctx,
+	// 		"INSERT INTO player (id, tenant_id, display_name, is_disqualified, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+	// 		id, v.tenantID, displayName, false, now, now,
+	// 	); err != nil {
+	// 		return fmt.Errorf(
+	// 			"error Insert player at tenantDB: id=%s, displayName=%s, isDisqualified=%t, createdAt=%d, updatedAt=%d, %w",
+	// 			id, displayName, false, now, now, err,
+	// 		)
+	// 	}
+	// 	p, err := retrievePlayer(ctx, tenantDB, id)
+	// 	if err != nil {
+	// 		return fmt.Errorf("error retrievePlayer: %w", err)
+	// 	}
+	// 	pds = append(pds, PlayerDetail{
+	// 		ID:             p.ID,
+	// 		DisplayName:    p.DisplayName,
+	// 		IsDisqualified: p.IsDisqualified,
+	// 	})
+	// }
 
 	res := PlayersAddHandlerResult{
 		Players: pds,
@@ -1226,18 +1260,28 @@ func competitionScoreHandler(c echo.Context) error {
 	); err != nil {
 		return fmt.Errorf("error Delete player_score: tenantID=%d, competitionID=%s, %w", v.tenantID, competitionID, err)
 	}
-	for _, ps := range playerScoreRows {
-		if _, err := tenantDB.NamedExecContext(
-			ctx,
-			"INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (:id, :tenant_id, :player_id, :competition_id, :score, :row_num, :created_at, :updated_at)",
-			ps,
-		); err != nil {
-			return fmt.Errorf(
-				"error Insert player_score: id=%s, tenant_id=%d, playerID=%s, competitionID=%s, score=%d, rowNum=%d, createdAt=%d, updatedAt=%d, %w",
-				ps.ID, ps.TenantID, ps.PlayerID, ps.CompetitionID, ps.Score, ps.RowNum, ps.CreatedAt, ps.UpdatedAt, err,
-			)
 
-		}
+	// for _, ps := range playerScoreRows {
+	// 	if _, err := tenantDB.NamedExecContext(
+	// 		ctx,
+	// 		"INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (:id, :tenant_id, :player_id, :competition_id, :score, :row_num, :created_at, :updated_at)",
+	// 		ps,
+	// 	); err != nil {
+	// 		return fmt.Errorf(
+	// 			"error Insert player_score: id=%s, tenant_id=%d, playerID=%s, competitionID=%s, score=%d, rowNum=%d, createdAt=%d, updatedAt=%d, %w",
+	// 			ps.ID, ps.TenantID, ps.PlayerID, ps.CompetitionID, ps.Score, ps.RowNum, ps.CreatedAt, ps.UpdatedAt, err,
+	// 		)
+
+	// 	}
+	// }
+
+	_, err = tenantDB.NamedExecContext(
+		ctx,
+		"INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (:id, :tenant_id, :player_id, :competition_id, :score, :row_num, :created_at, :updated_at)",
+		playerScoreRows,
+	)
+	if err != nil {
+		return fmt.Errorf("")
 	}
 
 	return c.JSON(http.StatusOK, SuccessResult{
