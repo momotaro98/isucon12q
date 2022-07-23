@@ -20,6 +20,7 @@ CREATE TABLE player (
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL
 );
+CREATE INDEX player_tenent_created ON player (tenant_id, created_at);
 
 CREATE TABLE player_score (
   id VARCHAR(255) NOT NULL PRIMARY KEY,
@@ -31,3 +32,4 @@ CREATE TABLE player_score (
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL
 );
+CREATE INDEX player_score_id ON player_score (tenant_id, competition_id, player_id);
