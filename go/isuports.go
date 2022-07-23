@@ -758,7 +758,7 @@ func tenantsBillingHandler(c echo.Context) error {
 	// テナントの課金とする
 	ts := []TenantRow{}
 	if beforeID == 0 {
-		if err := adminDB.SelectContext(ctx, &ts, "SELECT * FROM tenant ORDER BY id DESC"); err != nil {
+		if err := adminDB.SelectContext(ctx, &ts, "SELECT * FROM tenant ORDER BY id DESC limit 10"); err != nil {
 			return fmt.Errorf("error Select tenant: %w", err)
 		}
 	} else {
