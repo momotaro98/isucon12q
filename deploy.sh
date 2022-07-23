@@ -17,6 +17,7 @@ sudo systemctl daemon-reload
 
 echo 'Updating config file...'
 sudo cp "$DIR/nginx.conf" /etc/nginx/nginx.conf
+sudo cp "$DIR/isuports.conf" /etc/nginx/sites-enabled/isuports.conf
 # sudo cp "$DIR/redis.conf" /etc/redis/redis.conf
 sudo cp "$DIR/mysqld.cnf" /etc/mysql/mysql.conf.d/mysqld.cnf
 sudo cp "$DIR/10_schema.sql" /home/isucon/webapp/sql/tenant/10_schema.sql
