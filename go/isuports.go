@@ -537,6 +537,86 @@ type VisitHistorySummaryRow struct {
 	MinCreatedAt int64  `db:"min_created_at"`
 }
 
+type VisitHistoryCompIDSummaryRow struct {
+	CompetitionID string `db:"competition_id"`
+	PlayerID      string `db:"player_id"`
+	MinCreatedAt  int64  `db:"min_created_at"`
+}
+
+func myBillingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string, competitionIDMap map[string][]*VisitHistorySummaryRow) (*BillingReport, error) {
+	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
+	if err != nil {
+		return nil, fmt.Errorf("error retrieveCompetition: %w", err)
+	}
+
+	// // ランキングにアクセスした参加者のIDを取得する
+	// vhs := []VisitHistorySummaryRow{}
+	// if err := adminDB.SelectContext(
+	// 	ctx,
+	// 	&vhs,
+	// 	"SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id",
+	// 	tenantID,
+	// 	comp.ID,
+	// ); err != nil && err != sql.ErrNoRows {
+	// 	return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
+	// }
+
+	vhs := competitionIDMap[competitonID]
+
+	billingMap := map[string]string{}
+	for _, vh := range vhs {
+		// competition.finished_atよりもあとの場合は、終了後に訪問したとみなして大会開催内アクセス済みとみなさない
+		if comp.FinishedAt.Valid && comp.FinishedAt.Int64 < vh.MinCreatedAt {
+			continue
+		}
+		billingMap[vh.PlayerID] = "visitor"
+	}
+
+	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
+	fl, err := flockByTenantID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("error flockByTenantID: %w", err)
+	}
+	defer fl.Close()
+
+	// スコアを登録した参加者のIDを取得する
+	scoredPlayerIDs := []string{}
+	if err := tenantDB.SelectContext(
+		ctx,
+		&scoredPlayerIDs,
+		"SELECT DISTINCT(player_id) FROM player_score WHERE tenant_id = ? AND competition_id = ?",
+		tenantID, comp.ID,
+	); err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("error Select count player_score: tenantID=%d, competitionID=%s, %w", tenantID, competitonID, err)
+	}
+	for _, pid := range scoredPlayerIDs {
+		// スコアが登録されている参加者
+		billingMap[pid] = "player"
+	}
+
+	// 大会が終了している場合のみ請求金額が確定するので計算する
+	var playerCount, visitorCount int64
+	if comp.FinishedAt.Valid {
+		for _, category := range billingMap {
+			switch category {
+			case "player":
+				playerCount++
+			case "visitor":
+				visitorCount++
+			}
+		}
+	}
+	return &BillingReport{
+		CompetitionID:     comp.ID,
+		CompetitionTitle:  comp.Title,
+		PlayerCount:       playerCount,
+		VisitorCount:      visitorCount,
+		BillingPlayerYen:  100 * playerCount, // スコアを登録した参加者は100円
+		BillingVisitorYen: 10 * visitorCount, // ランキングを閲覧だけした(スコアを登録していない)参加者は10円
+		BillingYen:        100*playerCount + 10*visitorCount,
+	}, nil
+}
+
 // 大会ごとの課金レポートを計算する
 func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string) (*BillingReport, error) {
 	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
@@ -686,8 +766,29 @@ func tenantsBillingHandler(c echo.Context) error {
 			); err != nil {
 				return fmt.Errorf("failed to Select competition: %w", err)
 			}
+
+			// competition_id, player_id, MIN(created_at) AS min_created_at を取得
+			vhcs := []*VisitHistoryCompIDSummaryRow{}
+			if err := adminDB.SelectContext(
+				ctx,
+				&vhcs,
+				"SELECT competition_id, player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? GROUP BY competition_id, player_id",
+				t.ID,
+			); err != nil && err != sql.ErrNoRows {
+				return fmt.Errorf("error Select visit_history comp: tenantID=%d, %w", t.ID, err)
+			}
+
+			competitionIDMap := make(map[string][]*VisitHistorySummaryRow)
+			for _, r := range vhcs {
+				competitionIDMap[r.CompetitionID] = append(competitionIDMap[r.CompetitionID], &VisitHistorySummaryRow{
+					PlayerID:     r.PlayerID,
+					MinCreatedAt: r.MinCreatedAt,
+				})
+			}
+
 			for _, comp := range cs {
-				report, err := billingReportByCompetition(ctx, tenantDB, t.ID, comp.ID)
+				// report, err := billingReportByCompetition(ctx, tenantDB, t.ID, comp.ID)
+				report, err := myBillingReportByCompetition(ctx, tenantDB, t.ID, comp.ID, competitionIDMap)
 				if err != nil {
 					return fmt.Errorf("failed to billingReportByCompetition: %w", err)
 				}
