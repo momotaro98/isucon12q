@@ -10,7 +10,7 @@ CREATE TABLE competition (
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL
 );
-CREATE INDEX compe ON competition (tenant_id)
+CREATE INDEX compe ON competition (tenant_id);
 
 CREATE TABLE player (
   id VARCHAR(255) NOT NULL PRIMARY KEY,
