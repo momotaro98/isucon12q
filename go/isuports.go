@@ -1197,12 +1197,12 @@ func competitionScoreHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid CSV headers")
 	}
 
-	// / DELETEしたタイミングで参照が来ると空っぽのランキングになるのでロックする
-	fl, err := flockByTenantID(v.tenantID)
-	if err != nil {
-		return fmt.Errorf("error flockByTenantID: %w", err)
-	}
-	defer fl.Close()
+	// // / DELETEしたタイミングで参照が来ると空っぽのランキングになるのでロックする
+	// fl, err := flockByTenantID(v.tenantID)
+	// if err != nil {
+	// 	return fmt.Errorf("error flockByTenantID: %w", err)
+	// }
+	// defer fl.Close()
 	var rowNum int64
 	playerScoreRows := []PlayerScoreRow{}
 	for {
@@ -1251,6 +1251,14 @@ func competitionScoreHandler(c echo.Context) error {
 			UpdatedAt:     now,
 		})
 	}
+
+	// [moved] 直前にする
+	// / DELETEしたタイミングで参照が来ると空っぽのランキングになるのでロックする
+	fl, err := flockByTenantID(v.tenantID)
+	if err != nil {
+		return fmt.Errorf("error flockByTenantID: %w", err)
+	}
+	defer fl.Close()
 
 	if _, err := tenantDB.ExecContext(
 		ctx,
@@ -1322,9 +1330,29 @@ func billingHandler(c echo.Context) error {
 	); err != nil {
 		return fmt.Errorf("error Select competition: %w", err)
 	}
+
+	vhcs := []*VisitHistoryCompIDSummaryRow{}
+	if err := adminDB.SelectContext(
+		ctx,
+		&vhcs,
+		"SELECT competition_id, player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? GROUP BY competition_id, player_id",
+		v.tenantID,
+	); err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("error Select visit_history comp: tenantID=%d, %w", v.tenantID, err)
+	}
+
+	competitionIDMap := make(map[string][]*VisitHistorySummaryRow)
+	for _, r := range vhcs {
+		competitionIDMap[r.CompetitionID] = append(competitionIDMap[r.CompetitionID], &VisitHistorySummaryRow{
+			PlayerID:     r.PlayerID,
+			MinCreatedAt: r.MinCreatedAt,
+		})
+	}
+
 	tbrs := make([]BillingReport, 0, len(cs))
 	for _, comp := range cs {
-		report, err := billingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID)
+		// report, err := billingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID)
+		report, err := myBillingReportByCompetition(ctx, tenantDB, v.tenantID, comp.ID, competitionIDMap)
 		if err != nil {
 			return fmt.Errorf("error billingReportByCompetition: %w", err)
 		}
@@ -1508,6 +1536,7 @@ func competitionRankingHandler(c echo.Context) error {
 	}
 
 	now := time.Now().Unix()
+	// tenant ID しか使ってない & competition.TenantIDがあるから不要に見える
 	var tenant TenantRow
 	if err := adminDB.GetContext(ctx, &tenant, "SELECT * FROM tenant WHERE id = ?", v.tenantID); err != nil {
 		return fmt.Errorf("error Select tenant: id=%d, %w", v.tenantID, err)
@@ -1537,7 +1566,7 @@ func competitionRankingHandler(c echo.Context) error {
 	if err != nil {
 		return fmt.Errorf("error flockByTenantID: %w", err)
 	}
-	defer fl.Close()
+	// defer fl.Close()
 	pss := []PlayerScoreRow{}
 	if err := tenantDB.SelectContext(
 		ctx,
@@ -1548,6 +1577,7 @@ func competitionRankingHandler(c echo.Context) error {
 	); err != nil {
 		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
 	}
+	fl.Close()
 	ranks := make([]CompetitionRank, 0, len(pss))
 	scoredPlayerSet := make(map[string]struct{}, len(pss))
 	for _, ps := range pss {
